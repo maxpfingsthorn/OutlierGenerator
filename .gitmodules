@@ -1,0 +1,7 @@
+[submodule "Sophus"]
+	path = Sophus
+	url = https://github.com/maxpfingsthorn/Sophus.git
+
+[submodule "SophusDistributions"]
+	path = SophusDistributions
+	url = https://github.com/maxpfingsthorn/SophusDistributions.git
