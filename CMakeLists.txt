@@ -4,6 +4,11 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 SET( CMAKE_VERBOSE_MAKEFILE ON)
 SET( CMAKE_BUILD_TYPE Debug )
 
+SET( BUILD_TESTS OFF )
+
+add_subdirectory(Sophus)
+add_subdirectory(SophusDistributions)
+
 FIND_PACKAGE( SophusDistributions REQUIRED )
 
 include_directories( ${SophusDistributions_INCLUDE_DIRS} )
