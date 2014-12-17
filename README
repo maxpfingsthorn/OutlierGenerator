@@ -1,0 +1,3 @@
+= Outlier Generator =
+
+This is a package to conveniently and repeatably generate outliers for robust SLAM experiments.
