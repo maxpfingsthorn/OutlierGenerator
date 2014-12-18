@@ -3,10 +3,15 @@
 import argparse
 import sys
 
+class DefaultHelpParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
 
 if __name__ == "__main__":
 
-	parser = argparse.ArgumentParser(description='Transplant vertex poses from one g2o file to another.')
+	parser = DefaultHelpParser(description='Transplant vertex poses from one g2o file to another.')
 
 	parser.add_argument("input", type=argparse.FileType('r'), help = "g2o file to transplant poses to.")
 	parser.add_argument("poses", type=argparse.FileType('r'), help = "g2o file to transplant poses from.")

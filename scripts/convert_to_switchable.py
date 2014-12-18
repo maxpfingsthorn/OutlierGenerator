@@ -120,9 +120,15 @@ def output_batch(f,batch,dim,switch_prior,switch_inf,use_weight_as_prior,next_sw
 
 	return next_switch_vertex_id
 
+class DefaultHelpParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+
 if __name__ == "__main__":
 
-	parser = argparse.ArgumentParser(description='Convert a pair of original g2o file with corresponding outliers to a MaxMix graph.')
+	parser = DefaultHelpParser(description='Convert a pair of original g2o file with corresponding outliers to a MaxMix graph.')
 
 	parser.add_argument("input", type=argparse.FileType('r'), help = "Path to the original dataset file (in g2o format).")
 	parser.add_argument("outliers", type=argparse.FileType('r'), help = "Outliers will be read from this file.")

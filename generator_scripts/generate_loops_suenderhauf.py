@@ -25,12 +25,16 @@ policies = [
 	["--local-loops","--local-neighborhood",str(local_neighborhood),"--group-loops","--group-size",str(group_size)] #locally grouped
 ]
 
-
+class DefaultHelpParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
 
 
 if __name__ == "__main__":
 
-	parser = argparse.ArgumentParser(description='Generate outlier loops like in Niko Suenderhaufs PhD thesis.')
+	parser = DefaultHelpParser(description='Generate outlier loops like in Niko Suenderhaufs PhD thesis.')
 
 	parser.add_argument("original", help = "Path to the original, outlier-free, dataset file (in g2o format).")
 	parser.add_argument("output_directory", help = "Output directory for outlier files")

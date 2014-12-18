@@ -3,10 +3,15 @@
 import argparse
 import sys
 
-
+class DefaultHelpParser(argparse.ArgumentParser):
+    def error(self, message):
+        sys.stderr.write('error: %s\n' % message)
+        self.print_help()
+        sys.exit(2)
+        
 if __name__ == "__main__":
 
-	parser = argparse.ArgumentParser(description='Set vertex poses to zeros.')
+	parser = DefaultHelpParser(description='Set vertex poses to zeros.')
 
 	parser.add_argument("input", type=argparse.FileType('r'), help = "Path to the original dataset file (in g2o format).")
 	parser.add_argument("output", type=argparse.FileType('w'), help = "Output g2o file.")
