@@ -1,2 +1,5 @@
 Dataset from G2O (svn version):
 https://openslam.informatik.uni-freiburg.de/data/svn/g2o/trunk/data/2d/manhattan3500/manhattanOlson3500.g2o
+
+Kummerle, R.; Grisetti, G.; Strasdat, H.; Konolige, K.; Burgard, W., "G2o: A general framework for graph optimization," Robotics and Automation (ICRA), 2011 IEEE International Conference on , vol., no., pp.3607,3613, 9-13 May 2011
+doi: 10.1109/ICRA.2011.5979949
