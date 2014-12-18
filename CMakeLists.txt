@@ -20,5 +20,7 @@ find_package(Boost 1.46.1 COMPONENTS date_time program_options REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS}) 
 
 
+SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY bin )
+
 add_executable(outlier_generator src/outlier_generator.cpp)
 target_link_libraries(outlier_generator ${Boost_LIBRARIES})
