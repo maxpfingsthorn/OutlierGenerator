@@ -10,7 +10,7 @@ from utils import DefaultHelpParser
 
 if __name__ == "__main__":
 
-	parser = DefaultHelpParser(description='Read g2o file set poses to zero.')
+	parser = DefaultHelpParser(description='Read g2o file and filter out duplicate edges and so on.')
 
 	parser.add_argument("input", type=argparse.FileType('r'), help = "Path to the original dataset file (in g2o format).")
 	parser.add_argument("output", type=argparse.FileType('w'), help = "Output graph will be written into this file.")
@@ -19,7 +19,5 @@ if __name__ == "__main__":
 
 
 	g = G.readg2o(args.input)
-
-	g.setNonfixedPosesToZero()
 
 	g.writeg2o(args.output)

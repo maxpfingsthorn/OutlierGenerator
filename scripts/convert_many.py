@@ -6,12 +6,7 @@ import os
 import glob
 import traceback
 from subprocess import check_call
-
-class DefaultHelpParser(argparse.ArgumentParser):
-    def error(self, message):
-        sys.stderr.write('error: %s\n' % message)
-        self.print_help()
-        sys.exit(2)
+from utils import DefaultHelpParser
 
 if __name__ == "__main__":
 
@@ -50,9 +45,7 @@ if __name__ == "__main__":
 
 			command = [args.worker, args.input, outlierfile]
 
-			output_dir = os.path.dirname(outlierfile)
-			if args.output_dir:
-				output_dir = args.output_dir
+			
 
 			(output_name, outlier_ext) = os.path.splitext( os.path.basename(outlierfile) )
 

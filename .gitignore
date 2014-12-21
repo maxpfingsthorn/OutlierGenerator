@@ -27,6 +27,9 @@
 *.out
 *.app
 
+# python
+*.pyc
+
 # CMake stuff
 CMakeCache.txt
 CMakeFiles

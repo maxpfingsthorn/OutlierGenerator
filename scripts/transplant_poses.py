@@ -1,13 +1,10 @@
 #!/usr/bin/python
 
+from __future__ import print_function
+
 import argparse
 import sys
-
-class DefaultHelpParser(argparse.ArgumentParser):
-    def error(self, message):
-        sys.stderr.write('error: %s\n' % message)
-        self.print_help()
-        sys.exit(2)
+from utils import DefaultHelpParser
 
 if __name__ == "__main__":
 
@@ -21,24 +18,22 @@ if __name__ == "__main__":
 
 	poses = dict()
 
-	pl = args.poses.readlines()
-	for l in pl:
+	for l in args.poses:
 		e = l.split()
 
 		if e[0] == "VERTEX_SE2" or e[0] == "VERTEX_SE3:QUAT":
-			poses[ int(e[1]) ] = e
+			poses[ int(e[1]) ] = l
 
 
-	lines = args.input.readlines()
-
-	for l in lines:
+	for l in args.input:
 		e = l.split()
 
 		if e[0] == "VERTEX_SE2" or e[0] == "VERTEX_SE3:QUAT":
 			if int(e[1]) in poses:
-				e[2:] = poses[ int(e[1]) ][2:]
-
-			args.output.write( " ".join(e) + "\n")
+				args.output.write( poses[ int(e[1]) ] )
+			else:
+				print("ERROR: could not find corresponding vertex %d in reference input!" % int(e[1]))
+				exit(1)
 
 		else:
 			args.output.write(l)

@@ -1,121 +1,41 @@
 #!/usr/bin/python
 
+from __future__ import print_function
+
 import argparse
 import sys
+import graph as G
+from utils import DefaultHelpParser
+
+class hypermog_output(G.base_g2o_output):
+	def __init__(self,dim,null_weight):
+		super(hypermog_output, self).__init__(dim)
+
+		self.null_weight=null_weight
+
+		self.hypermog_edge_tag = "EDGE_HYPER_MOG_"
+		if self.dim == 2:
+			self.hypermog_edge_tag+="SE2"
+		else:
+			self.hypermog_edge_tag+="SE3:QUAT"
 
 
-def readg2o(f):
-	v=""
-	e=list()
-	dim = 0
+	def output_edge(self,i,e):
+		if e.isSimple():
+			super(hypermog_output, self).output_edge(i,e)
+			return
 
-	lines=f.readlines()
+		e.normalize(self.null_weight)
 
-	for l in lines:
-		elems = l.split()
+		self.out.write( "%s %d %d %d" % (self.hypermog_edge_tag, e.reference, e.has_null_hypothesis, len(e.motion_batches)))
 
-		if l[0] == '#' or len(elems) == 0:
-			continue
+		for b in e.motion_batches:
+			self.out.write( " %d %s %d" %( b.target, str(b.batch_weight), len(b.motions)))
 
-		if dim == 0 and ( elems[0] == "VERTEX_SE2" or elems[0] == "EDGE_SE2" ):
-			dim = 2
-		if dim == 0 and ( elems[0] == "VERTEX_SE3:QUAT" or elems[0] == "EDGE_SE3:QUAT" ):
-			dim = 3
+			for w,m in zip(b.weights,b.motions):
+				self.out.write( " %s %s" %( str(w), " ".join([str(x) for x in m]) ) )
 
-		if elems[0] == "VERTEX_SE2" or elems[0] == "VERTEX_SE3:QUAT" or elems[0] == "FIX":
-			v += l
-		elif elems[0] == "EDGE_SE2" or elems[0] == "EDGE_SE3:QUAT":
-			e.append(elems)
-
-	return (v,e,dim)
-
-def readOutliers(f):
-	outliers_on_inliers=dict()
-	other_outliers=list()
-	dim = 0
-
-	lines=f.readlines()
-
-	current_outlier_batch=dict()
-	next_weight = 1.0
-
-	for l in lines:
-		elems = l.split()
-
-		if l[0] == '#' or len(elems) == 0:
-			continue
-
-		if dim == 0 and elems[0] == "EDGE_SE2":
-			dim = 2
-		if dim == 0 and elems[0] == "EDGE_SE3:QUAT":
-			dim = 3
-
-		if elems[0] == 'LOOP_OUTLIER_BATCH':
-			current_outlier_batch=dict()
-			current_outlier_batch['has_inlier'] = elems[3]=='1'
-			current_outlier_batch['has_null_hypothesis'] = elems[2]=='1'
-			current_outlier_batch['reference'] = elems[1]
-			current_outlier_batch['inlier_target'] = elems[4]
-			current_outlier_batch['hyper_constraints'] = []
-
-		elif elems[0] == 'MOTION_OUTLIER_BATCH':
-			
-			current_outlier_batch['hyper_constraints'].append(dict())
-			current_outlier_batch['hyper_constraints'][-1]['hyper_weight']=float(elems[2])
-			current_outlier_batch['hyper_constraints'][-1]['target']=elems[1]
-			current_outlier_batch['hyper_constraints'][-1]['weights']=[]
-			current_outlier_batch['hyper_constraints'][-1]['constraints']=[]
-
-		elif elems[0] == 'MOTION_WEIGHT':
-			next_weight = float(elems[1])
-
-		elif elems[0] == 'EDGE_SE2' or elems[0] == 'EDGE_SE3:QUAT':
-			current_outlier_batch['hyper_constraints'][-1]['constraints'].append(elems)
-			current_outlier_batch['hyper_constraints'][-1]['weights'].append(next_weight)
-
-		elif elems[0] == 'LOOP_OUTLIER_BATCH_END':
-			if current_outlier_batch['has_inlier']:
-				key=current_outlier_batch['reference']+','+current_outlier_batch['inlier_target']
-				outliers_on_inliers[key] = current_outlier_batch
-			else:
-				other_outliers.append(current_outlier_batch)
-
-
-	return (outliers_on_inliers, other_outliers, dim)
-
-
-def output_batch(f,batch,dim,null_weight):
-	f.write("EDGE_HYPER_MOG_")
-	if dim==2:
-		f.write("SE2 ")
-	elif dim==3:
-		f.write("SE3:QUAT ")
-
-	f.write( batch['reference'] +' ')
-	f.write( '%d' % len(batch['hyper_constraints']) )
-
-	norm_fac=0.0
-
-	for c in batch['hyper_constraints']:
-		norm_fac += c['hyper_weight']
-
-	if batch['has_null_hypothesis']:
-		norm_fac += null_weight
-
-	for c in batch['hyper_constraints']:
-		f.write( " %s %s %d" % (c['target'], str(c['hyper_weight']/norm_fac), len(c['constraints']) ) )
-
-		for m in range(0,len(c['constraints'])):
-			f.write( " %s %s" %( str(c['weights'][m]/sum(c['weights'])), " ".join(c['constraints'][m][3:]) ))
-
-	f.write("\n")
-
-class DefaultHelpParser(argparse.ArgumentParser):
-    def error(self, message):
-        sys.stderr.write('error: %s\n' % message)
-        self.print_help()
-        sys.exit(2)
-
+		self.out.write("\n")
 
 if __name__ == "__main__":
 
@@ -123,76 +43,33 @@ if __name__ == "__main__":
 
 	parser.add_argument("input", type=argparse.FileType('r'), help = "Path to the original dataset file (in g2o format).")
 	parser.add_argument("outliers", type=argparse.FileType('r'), help = "Outliers will be read from this file.")
-	parser.add_argument("output", type=argparse.FileType('w'), help = "Multimodal Hypergraph will be written into this file.")
-	parser.add_argument("--null-weight", type=float, default=1e-3, dest="null_weight", help="Weight of null hypothesis, used during hypercomponent weight normalization. Default: 1e-3")
+	parser.add_argument("output", type=argparse.FileType('w'), help = "Plain graph will be written into this file.")
 	parser.add_argument("--make-all-loops-hyperedges", default=False, dest="all_hyper", action='store_true', help="If given, make all non-sequential edges hyperedges, even though they do not have an assigned outlier.")
+	parser.add_argument("--seq-init", default=False, dest="do_seq", action='store_true', help="If given, do a sequential initialization (aka odometry init in g2o) including outliers.")
+	parser.add_argument("--bfs-init", default=False, dest="do_bfs", action='store_true', help="If given, do a breadth first initialization (aka spanning tree init in g2o) based on complete graph including outliers.")
+	parser.add_argument("--bfs-with-null", default=False, dest="do_bfs_with_null", action='store_true', help="If given, also use edges with null hypothesis for bfs initialization.")
+	parser.add_argument("--null-weight", type=float, default=1e-3, dest="null_weight", help="Weight of null hypothesis, used during hypercomponent weight normalization. Default: 1e-3")
 
 	args = parser.parse_args()
 
+	if args.do_bfs and args.do_seq:
+		print("ERROR: specify either --seq-init or --bfs-init, not both")
+		exit(1)
 
-	(V,E,dim_g2o) = readg2o(args.input)
+	g = G.readg2o(args.input)
 
-	#print "number of vertices in g2o file:",len(V)
-	print "number of edges in g2o file:",len(E)
+	g.readExtraOutliers(args.outliers)
 
-	(outliers_on_inliers, other_outliers, dim_outliers) = readOutliers(args.outliers)
+	if args.all_hyper:
+		g.makeAllLoopsHaveNullHypothesis()
 
-	print "number inliers that have outliers (loops and motions):",len(outliers_on_inliers)
-	print "number of outlier loop batches:",len(other_outliers)
+	if args.do_bfs:
+		g.setNonfixedPosesToZero()
+		g.intializePosesBFS(args.do_bfs_with_null)
 
-	if( len(outliers_on_inliers)==0 and len(other_outliers)==0):
-		print "ERROR: No outliers!"
-		sys.exit(1)
-
-	if( dim_g2o != dim_outliers):
-		print "ERROR! Dimensions of g2o and outlier files are not the same! "
-		print "G2O: is %dD, outliers are %dD" % (dim_g2o, dim_outliers)
-		sys.exit(2)
-
+	if args.do_seq:
+		g.setNonfixedPosesToZero()
+		g.intializePosesSequential()
 
 
-	args.output.write(V)
-
-
-	for e in E:
-		key=e[1]+','+e[2]
-
-		if key in outliers_on_inliers:
-			#args.output.write("THIS SHALL BE A HYPER_MOG: "+(" ".join(e))+"\n")
-			batch=outliers_on_inliers[key]
-			if batch['hyper_constraints'][0]['target'] != e[2]:
-				batch['hyper_constraints'].insert(0,dict())
-				batch['hyper_constraints'][0]['hyper_weight']=1.0
-				batch['hyper_constraints'][0]['target']=e[2]
-				batch['hyper_constraints'][0]['constraints']=[]
-				batch['hyper_constraints'][0]['weights']=[]
-
-			batch['hyper_constraints'][0]['constraints'].insert(0,e)
-			batch['hyper_constraints'][0]['weights'].insert(0,1.0)
-
-			output_batch(args.output, batch, dim_g2o, args.null_weight)
-		else:
-			if int(e[1])+1 != int(e[2]) and args.all_hyper:
-				batch=dict()
-				batch['has_inlier'] = False
-				batch['has_null_hypothesis'] = True
-				batch['reference'] = e[1]
-				batch['inlier_target'] = e[2]
-				batch['hyper_constraints']=[]
-				batch['hyper_constraints'].append(dict())
-				batch['hyper_constraints'][0]['target'] = e[2]
-				batch['hyper_constraints'][0]['hyper_weight'] = 1.0
-				batch['hyper_constraints'][0]['constraints']=[]
-				batch['hyper_constraints'][0]['weights']=[]
-
-				batch['hyper_constraints'][0]['constraints'].insert(0,e)
-				batch['hyper_constraints'][0]['weights'].insert(0,1.0)
-
-				output_batch(args.output, batch, dim_g2o, args.null_weight)
-
-			else:
-				args.output.write( (" ".join(e))+ "\n")
-
-
-	for o in other_outliers:
-		output_batch(args.output, o, dim_g2o, args.null_weight)
+	g.writeg2o(args.output,hypermog_output(g.dim, args.null_weight))

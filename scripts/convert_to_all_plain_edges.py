@@ -1,96 +1,17 @@
 #!/usr/bin/python
 
+from __future__ import print_function
+
 import argparse
 import sys
+import graph as G
+from utils import DefaultHelpParser
 
-
-def readg2o(f):
-	v=""
-	e=list()
-	dim = 0
-
-
-	lines=f.readlines()
-
-	for l in lines:
-		elems = l.split()
-
-		if l[0] == '#' or len(elems) == 0:
-			continue
-
-		if dim == 0 and ( elems[0] == "VERTEX_SE2" or elems[0] == "EDGE_SE2" ):
-			dim = 2
-		if dim == 0 and ( elems[0] == "VERTEX_SE3:QUAT" or elems[0] == "EDGE_SE3:QUAT" ):
-			dim = 3
-
-		if elems[0] == "VERTEX_SE2" or elems[0] == "VERTEX_SE3:QUAT" or elems[0] == "FIX":
-			v += l
-
-		elif elems[0] == "EDGE_SE2" or elems[0] == "EDGE_SE3:QUAT":
-			e.append(elems)
-
-	return (v,e,dim)
-
-def readOutliers(f):
-	outliers_on_inliers=dict()
-	other_outliers=list()
-	dim = 0
-
-	lines=f.readlines()
-
-	current_outlier_batch=dict()
-	next_weight = 1.0
-
-	for l in lines:
-		elems = l.split()
-
-		if l[0] == '#' or len(elems) == 0:
-			continue
-
-		if dim == 0 and elems[0] == "EDGE_SE2":
-			dim = 2
-		if dim == 0 and elems[0] == "EDGE_SE3:QUAT":
-			dim = 3
-
-		if elems[0] == 'LOOP_OUTLIER_BATCH':
-			current_outlier_batch=dict()
-			current_outlier_batch['has_inlier'] = elems[3]=='1'
-			current_outlier_batch['has_null_hypothesis'] = elems[2]=='1'
-			current_outlier_batch['reference'] = elems[1]
-			current_outlier_batch['inlier_target'] = elems[4]
-			current_outlier_batch['hyper_constraints'] = []
-
-		elif elems[0] == 'MOTION_OUTLIER_BATCH':
-			
-			current_outlier_batch['hyper_constraints'].append(dict())
-			current_outlier_batch['hyper_constraints'][-1]['hyper_weight']=float(elems[2])
-			current_outlier_batch['hyper_constraints'][-1]['target']=elems[1]
-			current_outlier_batch['hyper_constraints'][-1]['weights']=[]
-			current_outlier_batch['hyper_constraints'][-1]['constraints']=[]
-
-		elif elems[0] == 'MOTION_WEIGHT':
-			next_weight = float(elems[1])
-
-		elif elems[0] == 'EDGE_SE2' or elems[0] == 'EDGE_SE3:QUAT':
-			current_outlier_batch['hyper_constraints'][-1]['constraints'].append(elems)
-			current_outlier_batch['hyper_constraints'][-1]['weights'].append(next_weight)
-
-		elif elems[0] == 'LOOP_OUTLIER_BATCH_END':
-			if current_outlier_batch['has_inlier']:
-				key=current_outlier_batch['reference']+','+current_outlier_batch['inlier_target']
-				outliers_on_inliers[key] = current_outlier_batch
-			else:
-				other_outliers.append(current_outlier_batch)
-
-
-	return (outliers_on_inliers, other_outliers, dim)
-
-
-class DefaultHelpParser(argparse.ArgumentParser):
-    def error(self, message):
-        sys.stderr.write('error: %s\n' % message)
-        self.print_help()
-        sys.exit(2)
+class plain_output(G.base_g2o_output):
+	def output_edge(self,i,e):
+		for b in e.motion_batches:
+			for m in b.motions:
+				print( "%s %d %d %s" %( self.edge_tag, e.reference, b.target, " ".join([str(x) for x in m]) ), file=self.out )
 
 if __name__ == "__main__":
 
@@ -99,39 +20,31 @@ if __name__ == "__main__":
 	parser.add_argument("input", type=argparse.FileType('r'), help = "Path to the original dataset file (in g2o format).")
 	parser.add_argument("outliers", type=argparse.FileType('r'), help = "Outliers will be read from this file.")
 	parser.add_argument("output", type=argparse.FileType('w'), help = "Plain graph will be written into this file.")
+	parser.add_argument("--make-all-loops-hyperedges", default=False, dest="all_hyper", action='store_true', help="If given, make all non-sequential edges hyperedges, even though they do not have an assigned outlier.")
+	parser.add_argument("--seq-init", default=False, dest="do_seq", action='store_true', help="If given, do a sequential initialization (aka odometry init in g2o) including outliers.")
+	parser.add_argument("--bfs-init", default=False, dest="do_bfs", action='store_true', help="If given, do a breadth first initialization (aka spanning tree init in g2o) based on complete graph including outliers.")
+	parser.add_argument("--bfs-with-null", default=False, dest="do_bfs_with_null", action='store_true', help="If given, also use edges with null hypothesis for bfs initialization.")
 
 	args = parser.parse_args()
 
+	if args.do_bfs and args.do_seq:
+		print("ERROR: specify either --seq-init or --bfs-init, not both")
+		exit(1)
 
-	(V,E,dim_g2o) = readg2o(args.input)
+	g = G.readg2o(args.input)
 
-	#print "number of vertices in g2o file:",len(V)
-	print "number of edges in g2o file:",len(E)
+	g.readExtraOutliers(args.outliers)
 
-	(outliers_on_inliers, other_outliers, dim_outliers) = readOutliers(args.outliers)
+	if args.all_hyper:
+		g.makeAllLoopsHaveNullHypothesis()
 
-	print "number inliers that have outliers (loops and motions):",len(outliers_on_inliers)
-	print "number of outlier loop batches:",len(other_outliers)
+	if args.do_bfs:
+		g.setNonfixedPosesToZero()
+		g.intializePosesBFS(args.do_bfs_with_null)
 
-	if( len(outliers_on_inliers)==0 and len(other_outliers)==0):
-		print "ERROR: No outliers!"
-		sys.exit(1)
-
-	if( dim_g2o != dim_outliers):
-		print "ERROR! Dimensions of g2o and outlier files are not the same! "
-		print "G2O: is %dD, outliers are %dD" % (dim_g2o, dim_outliers)
-		sys.exit(2)
-
+	if args.do_seq:
+		g.setNonfixedPosesToZero()
+		g.intializePosesSequential()
 
 
-	args.output.write(V)
-
-
-	for e in E:
-		args.output.write( (" ".join(e))+ "\n")
-
-
-	for o in [v for k,v in outliers_on_inliers.iteritems() ] + other_outliers:
-		for h in o['hyper_constraints']:
-			for c in h['constraints']:
-				args.output.write( " ".join(c) + "\n")
+	g.writeg2o(args.output,plain_output(g.dim))

@@ -447,6 +447,11 @@ bool generate_outliers(Graph& G, const options& op) {
 				boost::uniform_int<size_t> random_reference(0,G.vertex_ids.size()-1);
 				size_t ref_index = random_reference(gen);
 
+				if(op.group_loops) {
+					if(ref_index > G.vertex_ids.size()-1 -op.group_size) { // need enough space for group to complete
+						continue;
+					}
+				}
 
 				size_t lower_limit = 0;
 				if(op.local_loops) {
@@ -672,6 +677,10 @@ bool generate_outliers(Graph& G, const options& op) {
 	// rebuild for summary
 	simple_seq_inliers.clear();
 	simple_loop_inliers.clear();
+	loops_on_inliers.clear();
+	loops_on_null.clear();
+	motions.clear();
+
 	for(size_t i = 0; i < G.edges.size(); i++) {
 		const EdgeData& e = G.edges[i];
 
@@ -681,6 +690,35 @@ bool generate_outliers(Graph& G, const options& op) {
 			} else {
 				simple_loop_inliers.push_back(i);
 			}
+		}
+
+		size_t num_comp = e.targets.size();
+		if(e.has_inlier && num_comp>=2) {
+			size_t index = num_comp-2; // 2 because: 1 inlier, zero base, min will be 2
+			if(loops_on_inliers.size() <= index ) {
+				loops_on_inliers.resize(index+1);
+			}
+			loops_on_inliers[index].push_back(i);
+		} else if( !e.has_inlier) {
+			size_t index = num_comp-1; // 1 because: zero base, min will be 1
+			if(loops_on_null.size() <= index ) {
+				loops_on_null.resize(index+1);
+			}
+			loops_on_null[index].push_back(i);
+		}
+
+		for(size_t c=0; c<e.targets.size(); c++) {
+			if( e.hyper_constraints[c].constraints.size() == 1 ) continue;
+
+			size_t index = e.hyper_constraints[c].constraints.size() - 1;
+			if(e.has_inlier && c == 0) {
+				index--; // remove inlier comp
+			}
+
+			if( motions.size() <= index ) {
+				motions.resize(index+1);
+			}
+			motions[index].push_back( make_pair(i, c) );
 		}
 	}
 
