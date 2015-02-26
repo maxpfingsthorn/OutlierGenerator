@@ -15,6 +15,8 @@
 #include <sophus/se2.hpp>
 #include <sophus/se3.hpp>
 
+#include <sophus/Random.hpp>
+
 #include <sophus/distributions/MixtureOf.hpp>
 #include <sophus/distributions/MixtureOfSample.hpp>
 #include <sophus/distributions/NormalDistributionOn.hpp>
@@ -59,6 +61,8 @@ struct options {
 	double min_confidence_distance_motions;
 	double cov_inflation_factor_for_motion_generation;
 
+	bool ensure_first_false_motion_has_larger_weight_than_inlier;
+
 	options() {
 		has_existing_outliers_file = false;
 
@@ -83,7 +87,9 @@ struct options {
 
 		min_confidence_distance_motions = .95;
 
-		cov_inflation_factor_for_motion_generation = 10;
+		cov_inflation_factor_for_motion_generation = 1.5;
+
+		ensure_first_false_motion_has_larger_weight_than_inlier = false;
 	}
 };
 
@@ -625,9 +631,11 @@ bool generate_outliers(Graph& G, const options& op) {
 			for(size_t i=0; i<simple_seq_inliers.size(); i++) {
 				base_edges.push_back( make_pair( simple_seq_inliers[i] ,0) );
 			}
+			/*
 			for(size_t i=0; i<simple_loop_inliers.size(); i++) {
 				base_edges.push_back( make_pair( simple_loop_inliers[i] ,0) );
 			}
+			*/
 		}
 
 		vector< pair< size_t, size_t > >* extensible = &base_edges;
@@ -655,8 +663,17 @@ bool generate_outliers(Graph& G, const options& op) {
 				sample_mean_and_store(G.dim, op.motion_tr_variance, op.motion_rot_variance, c, e.hyper_constraints[j], op.cov_inflation_factor_for_motion_generation, op.min_confidence_distance_motions, gen);
 
 				// "emplace"
+				double min_weight = op.min_weight;
+				double max_weight = op.max_weight;
 
-				boost::uniform_real<> random_weight(op.min_weight, op.max_weight);
+				if( e.hyper_constraints[j].weights.size() == 1 && op.ensure_first_false_motion_has_larger_weight_than_inlier && min_weight < e.hyper_constraints[j].weights.front() ) {
+					min_weight = e.hyper_constraints[j].weights.front() + std::numeric_limits<double>::epsilon();
+					if(max_weight < e.hyper_constraints[j].weights.front()) {
+						max_weight += min_weight - op.min_weight;
+					}
+				}
+
+				boost::uniform_real<> random_weight(min_weight, max_weight);
 				double weight = random_weight(gen);
 
 				e.hyper_constraints[j].weights.push_back(weight);
@@ -783,26 +800,43 @@ template< typename Group, typename RNG >
 Group sample_mean_with_constraint(const ConstraintData& c, const ConstraintMixtureData& existing, double inflation_factor, double inside_confidence, RNG& gen) {
 	MixtureOf< NormalDistributionOn<Group> > mix;
 
+	double mean_distance = 0;
+
 	for(size_t i=0; i<existing.constraints.size(); i++) {
 		typename NormalDistributionOn<Group>::Covariance Sigma = existing.constraints[i].cov;
 		Group mean;
 		fill_values(mean,existing.constraints[i].mean);
 		NormalDistributionOn<Group> nd(mean, Sigma);
 
+		mean_distance += existing.constraints[i].mean.norm();
+
 		mix.addComponent(existing.weights[i], nd);
 	}
 	mix.normalizeWeights();
+
+	mean_distance /= existing.constraints.size();
 
 	
 
 	typename NormalDistributionOn<Group>::Covariance Sigma = c.cov;
 
-	NormalDistributionOn<Group> sample_n( Group::Tangent::Zero(), Sigma * inflation_factor);
-	typename SampleTraits< NormalDistributionOn<Group> >::Sampler sampler(sample_n);
+	//NormalDistributionOn<Group> sample_n( Group::Tangent::Zero(), Sigma * inflation_factor);
+	//typename SampleTraits< NormalDistributionOn<Group> >::Sampler sampler(sample_n);
+
+	Random::uniform_group<Group> sampler( Group::Point::Constant(mean_distance * inflation_factor) );
+
+	Group s = sampler(gen);
+
+	// cout << "original sampled group: " << flush;
+	// for(int i=0; i<Group::num_parameters; i++) {
+	// 	if(i!=0) cout << ",";
+	// 	cout << s.data()[i] << flush;
+	// }
+	// cout << endl;
 
 	//cout << "starting sample, inside_confidence=" << inside_confidence << endl;
 
-	Group s = sampler(gen);
+	
 	NormalDistributionOn<Group> nd(s,Sigma);
 
 	//size_t count = 0;
@@ -830,7 +864,7 @@ void sample_mean_and_store(int dim, double variance_translation, double variance
 		c.mean.resize(3);
 		c.mean[0] = s.translation()[0];
 		c.mean[1] = s.translation()[1];
-		c.mean[2] = s.so2().log();
+		c.mean[2] = s.so2().log(); // theta
 	} else {
 		c.cov = MatrixXd::Zero(6,6);
 		c.cov(0,0) = c.cov(1,1) = c.cov(2,2) = variance_translation;
@@ -1221,9 +1255,10 @@ bool parse_options(options& op, int argc, char** argv) {
 	    ("motion-variance-translation", po::value<double>(&op.motion_tr_variance)->default_value(op.motion_tr_variance), "Translation variance for false motions.")
 	    ("motion-variance-rotation", po::value<double>(&op.motion_rot_variance)->default_value(op.motion_rot_variance), "Rotation variance for false motions.")
 	    ("min-motion-distance", po::value<double>(&op.min_confidence_distance_motions)->default_value(op.min_confidence_distance_motions), "Seperate false motions for the same vertex pair should lie outside each others confidence ellipse of this probability. Default: .95")
-	    ("inflation-factor", po::value<double>(&op.cov_inflation_factor_for_motion_generation)->default_value(op.cov_inflation_factor_for_motion_generation), "Inflate motion covariance by this factor only for sampling motions. If motion generation takes a long time, increase this. Also makes for more dispersed motions. Default: 10.0")
+	    ("inflation-factor", po::value<double>(&op.cov_inflation_factor_for_motion_generation)->default_value(op.cov_inflation_factor_for_motion_generation), "Inflate motion randomness by this factor. If motion generation takes a long time, increase this. Also makes for more dispersed motions. Default: 1.5")
 	    ("min-weight", po::value<double>(&op.min_weight)->default_value(op.min_weight), "Minimum random weight for mixtures, first weight is always 1.0. Default: 0.5")
 	    ("max-weight", po::value<double>(&op.max_weight)->default_value(op.max_weight), "Maximum random weight for mixtures, first weight is always 1.0. Default: 2.0")
+	    ("first-motion-wins", po::value< bool >(&op.ensure_first_false_motion_has_larger_weight_than_inlier)->default_value(op.ensure_first_false_motion_has_larger_weight_than_inlier)->zero_tokens(), "Make weight of first false motion greater than original inlier weight (i.e. more than 1) no matter the value of min-weight and max-weight.")
 	;
 
 	po::positional_options_description pd;
