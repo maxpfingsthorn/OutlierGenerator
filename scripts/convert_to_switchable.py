@@ -8,8 +8,8 @@ import graph as G
 from utils import DefaultHelpParser
 
 class switchable_output(G.base_g2o_output):
-	def __init__(self,dim,switch_inf, switch_prior,weight_as_prior):
-		super(switchable_output, self).__init__(dim)
+	def __init__(self,graph,switch_inf, switch_prior,weight_as_prior):
+		super(switchable_output, self).__init__(graph)
 
 		self.switch_inf=switch_inf
 		self.switch_prior=switch_prior
@@ -36,7 +36,8 @@ class switchable_output(G.base_g2o_output):
 
 		for b in e.motion_batches:
 			
-			for w,m in zip(b.weights,b.motions):
+			for m in b.motions:
+				w = m.weight
 				prior=self.switch_prior
 				if self.weight_as_prior:
 					prior = w*b.batch_weight
@@ -82,7 +83,7 @@ if __name__ == "__main__":
 
 	if args.do_seq:
 		g.setNonfixedPosesToZero()
-		g.intializePosesSequential()
+		g.initializePosesSequential()
 
-	g.writeg2o(args.output,switchable_output(g.dim, args.switch_inf, args.switch_prior, args.weight_as_prior))
+	g.writeg2o(args.output,switchable_output(g, args.switch_inf, args.switch_prior, args.weight_as_prior))
 

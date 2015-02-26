@@ -56,7 +56,7 @@ if __name__ == "__main__":
 				output_name += args.output_suffix
 
 
-			output_name = os.path.normpath(output_dir + "/" + output_name + ".g2o")
+			output_name = os.path.normpath(args.output_dir + "/" + output_name + ".g2o")
 
 			command += [output_name]
 

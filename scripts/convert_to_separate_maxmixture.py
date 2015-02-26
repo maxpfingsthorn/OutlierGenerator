@@ -8,8 +8,8 @@ import graph as G
 from utils import DefaultHelpParser
 
 class separate_maxmix_output(G.base_g2o_output):
-	def __init__(self,dim,null_weight, null_inf_factor):
-		super(separate_maxmix_output, self).__init__(dim)
+	def __init__(self,graph,null_weight, null_inf_factor):
+		super(separate_maxmix_output, self).__init__(graph)
 
 		self.null_weight=null_weight
 		self.null_inf_factor=null_inf_factor
@@ -36,7 +36,8 @@ class separate_maxmix_output(G.base_g2o_output):
 			if e.has_null_hypothesis:
 				self.out.write(" %s %s %d %d %s %s" % ( self.edge_tag, str(self.null_weight), e.reference, b.target, " ".join([str(x) for x in e.motion_batches[0].motions[0].mean]), " ".join([str(self.null_inf_factor*x) for x in e.motion_batches[0].motions[0].inf_up]) ))
 
-			for w,m in zip(b.weights,b.motions):
+			for m in b.motions:
+				w=m.weight
 				self.out.write( " %s %s %d %d %s" %( self.edge_tag, str(w*b.batch_weight), e.reference, b.target, " ".join([str(x) for x in m]) ) )
 
 			self.out.write("\n")
@@ -74,7 +75,7 @@ if __name__ == "__main__":
 
 	if args.do_seq:
 		g.setNonfixedPosesToZero()
-		g.intializePosesSequential()
+		g.initializePosesSequential()
 
 
-	g.writeg2o(args.output,separate_maxmix_output(g.dim, args.null_weight, args.null_inf_factor))
+	g.writeg2o(args.output,separate_maxmix_output(g, args.null_weight, args.null_inf_factor))

@@ -10,7 +10,8 @@ import pose_utils as pu
 from utils import DefaultHelpParser
 
 class Motion:
-	def __init__(self, elems):
+	def __init__(self, weight, elems):
+		self.weight = weight
 		if len(elems) > 13: # 3D
 			self.mean = [float(x) for x in elems[3:10]]
 			self.inf_up = [float(x) for x in elems[10:]]
@@ -31,21 +32,25 @@ class ConstraintMotions:
 		self.target = target
 
 		self.motions = [] # Motion instances
-		self.weights = []
 
 		if init_str:
 			self.addMotion(1.0, init_str)
 
 	def addMotion(self, weight, elems):
-		self.motions.append(Motion(elems))
-		self.weights.append(weight)
+		self.motions.append(Motion(weight, elems))
 
 	def normalize(self,null_hypothesis_weight=0.0):
-		norm = sum(self.weights)+null_hypothesis_weight
-		self.weights = [x/norm for x in self.weights]
+		norm = sum([x.weight for x in self.motions])+null_hypothesis_weight
+		for i in range(len(self.motions)):
+			self.motions[i].weight /= norm
 
-	def getMax(self):
-		return self.motions[ self.weights.index(max(self.weights)) ]
+	def getMaxMotion(self):
+		maxmotion=None
+		for m in self.motions:
+			if not maxmotion or maxmotion.weight < m.weight:
+				maxmotion = m
+
+		return maxmotion
 
 
 
@@ -82,10 +87,21 @@ class ConstraintBatch:
 		return [x.target for x in self.motion_batches]
 
 	def getMax(self):
-		w = [x.batch_weight for x in self.motion_batches]
-		i = w.index( max(w) )
+		maxbatch=None
+		for b in self.motion_batches:
+			if not maxbatch or maxbatch.batch_weight < b.batch_weight:
+				maxbatch = b
 
-		return self.motion_batches[i]
+		return maxbatch
+
+	def getOrCreateMotions(self,target,weight):
+		for i in range(len(self.motion_batches)):
+			if self.motion_batches[i].target == target:
+				return self.motion_batches[i]
+
+		self.addMotions( ConstraintMotions(weight, target) )
+		return self.motion_batches[-1]
+
 
 	def addMotions(self,motion):
 		self.motion_batches.append(motion)
@@ -138,11 +154,12 @@ class ConstraintBatch:
 
 
 class base_g2o_output(object):
-	def __init__(self,dim):
-		self.dim=dim
+	def __init__(self,graph):
+		self.graph=graph
 		self.out=None
+		self.dim = graph.dim
 		
-		if dim == 2:
+		if graph.dim == 2:
 			self.vertex_tag = "VERTEX_SE2"
 			self.edge_tag = "EDGE_SE2"
 		else:
@@ -156,6 +173,9 @@ class base_g2o_output(object):
 		if not self.out:
 			raise ValueError("Don't have an output file!")
 		print( "%s %d %s" % (self.vertex_tag, i, " ".join([str(x) for x in v]) ), file=self.out)
+
+		if i in self.graph.fixed:
+			print("FIX %d" % i, file=self.out)
 
 	def output_edge(self,i,e):
 		if not self.out:
@@ -242,6 +262,7 @@ class Graph:
 				self.V[ int(elems[1]) ] = [float(x) for x in elems[2:]]
 			elif elems[0] == "FIX":
 				self.fixed.add( int(elems[1]) )
+				#print("fixing %d" % int(elems[1]))
 			elif elems[0] == self.edge_tag:
 				key = self.make_edge_key(elems[1], elems[2])
 				if key in self.E:
@@ -257,7 +278,7 @@ class Graph:
 
 	def writeg2o(self,f,g2o_output_functor=None):
 		if not g2o_output_functor:
-			g2o_output_functor = base_g2o_output(self.dim)
+			g2o_output_functor = base_g2o_output(self)
 
 		g2o_output_functor.setFile(f)
 
@@ -267,6 +288,7 @@ class Graph:
 	# adds outliers to this graph, can be called multiple times to add outliers from many files
 	def readExtraOutliers(self, f):
 		current_outlier_batch=None
+		current_motions=None
 		next_weight = 1.0
 
 		for l in f:
@@ -278,7 +300,6 @@ class Graph:
 				raise ValueError("You tried to load outliers with a different dimension than the original g2o graph!")
 
 			if elems[0] == 'LOOP_OUTLIER_BATCH':
-
 				if elems[3]=='1': # has inlier
 					key = self.make_edge_key(elems[1],elems[4])
 					if not key in self.E:
@@ -291,18 +312,18 @@ class Graph:
 						elems[2]=='1', # has_null_hypothesis
 						int(elems[1]), # reference
 						int(elems[4]) if int(elems[4])>=0 else None # inlier_target
-						)
-				
+						)				
 
 			elif elems[0] == 'MOTION_OUTLIER_BATCH':
 				target = int(elems[1])
-				current_outlier_batch.addMotions( ConstraintMotions(float(elems[2]), target) )
+				weight = float(elems[2])
+				current_motions = current_outlier_batch.getOrCreateMotions( target, weight )
 
 			elif elems[0] == 'MOTION_WEIGHT':
 				next_weight = float(elems[1])
 
 			elif elems[0] == self.edge_tag:
-				current_outlier_batch.motion_batches[-1].addMotion(next_weight, elems)
+				current_motions.addMotion(next_weight, elems)
 
 			elif elems[0] == 'LOOP_OUTLIER_BATCH_END':
 				if not current_outlier_batch.has_inlier:
@@ -337,31 +358,34 @@ class Graph:
 
 	def initializePosesSequential(self):
 		if len(self.fixed) != 1:
-			print("Don't know how to sequentially initialize with more than one fixed vertex", file=sys.stderr)
+			print("Don't know how to sequentially initialize with more than one fixed vertex, have %d" % len(self.fixed), file=sys.stderr)
 			return
 
+		v_fix = list(self.fixed)[0]
 
-		v_cur = self.fixed[0]
+		v_cur = v_fix
 		v_next = v_cur+1
 		key = self.make_edge_key(v_cur, v_next)
 		while key in self.E:
 			ee = self.E[key]
 			m = ee.getMax()
+			c = m.getMaxMotion()
 
-			self.V[v_next] = pu.compound( self.V[v_cur], m.getMax().mean, False)
+			self.V[v_next] = pu.compound( self.V[v_cur], c.mean, False)
 			v_cur=v_next
 			v_next=v_cur+1
 			key = self.make_edge_key(v_cur, v_next)
 
-		v_cur = self.fixed[0]
+		v_cur = v_fix
 		v_next = v_cur-1
 
 		key = self.make_edge_key(v_cur, v_next)
 		while key in self.E:
 			ee = self.E[key]
 			m = ee.getMax()
+			c = ee.getMaxMotion()
 
-			self.V[v_next] = pu.compound( self.V[v_cur], m.getMax().mean, True)
+			self.V[v_next] = pu.compound( self.V[v_cur], c.mean, True)
 			v_cur=v_next
 			v_next=v_cur-1
 			key = self.make_edge_key(v_cur, v_next)
@@ -405,7 +429,7 @@ class Graph:
 					#print("already assigned")
 					continue
 				#print("ref: %s, diff: %s" %(" ".join([str(x) for x in self.V[i]]), " ".join([str(x) for x in m.getMax().mean])))
-				self.V[next_i] = pu.compound( self.V[i], m.getMax().mean, False )
+				self.V[next_i] = pu.compound( self.V[i], m.getMaxMotion().mean, False )
 				#print(self.V[next_i])
 			else:
 				next_i = ee.reference
@@ -414,7 +438,7 @@ class Graph:
 					#print("already assigned")
 					continue
 				#print("ref: %s, diff: %s" %(" ".join([str(x) for x in self.V[i]]), " ".join([str(x) for x in m.getMax().mean])))
-				self.V[next_i] = pu.compound( self.V[i], m.getMax().mean, True)
+				self.V[next_i] = pu.compound( self.V[i], m.getMaxMotion().mean, True)
 				#print(self.V[next_i])
 
 			#print("*** Assigned %d" % next_i)

@@ -7,12 +7,7 @@ import os
 import glob
 import traceback
 from subprocess import check_call
-
-class DefaultHelpParser(argparse.ArgumentParser):
-    def error(self, message):
-        sys.stderr.write('error: %s\n' % message)
-        self.print_help()
-        sys.exit(2)
+from utils import DefaultHelpParser
 
 if __name__ == "__main__":
 
@@ -81,13 +76,16 @@ if __name__ == "__main__":
 				output_name += args.output_suffix
 
 
-			output_name = os.path.normpath(output_dir + "/" + output_name + ".g2o")
+			g2o_name = os.path.normpath(output_dir + "/" + output_name + ".g2o")
+			timing_name = os.path.normpath(output_dir + "/" + output_name + ".time")
 
 			command = [args.g2o]
 			command += extra_args
 			command += ['-solver', args.solver]
 			command += ['-i', str(args.max_iterations)]
-			command += ['-o', output_name, graphfile]
+			command += ['-o', g2o_name]
+			command += ['-saveTiming', timing_name]
+			command += [graphfile]
 
 			print "*************************"
 			print " ".join(command)

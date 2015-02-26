@@ -8,8 +8,8 @@ import graph as G
 from utils import DefaultHelpParser
 
 class hypermog_output(G.base_g2o_output):
-	def __init__(self,dim,null_weight):
-		super(hypermog_output, self).__init__(dim)
+	def __init__(self,graph,null_weight):
+		super(hypermog_output, self).__init__(graph)
 
 		self.null_weight=null_weight
 
@@ -32,7 +32,8 @@ class hypermog_output(G.base_g2o_output):
 		for b in e.motion_batches:
 			self.out.write( " %d %s %d" %( b.target, str(b.batch_weight), len(b.motions)))
 
-			for w,m in zip(b.weights,b.motions):
+			for m in b.motions:
+				w=m.weight
 				self.out.write( " %s %s" %( str(w), " ".join([str(x) for x in m]) ) )
 
 		self.out.write("\n")
@@ -69,7 +70,7 @@ if __name__ == "__main__":
 
 	if args.do_seq:
 		g.setNonfixedPosesToZero()
-		g.intializePosesSequential()
+		g.initializePosesSequential()
 
 
-	g.writeg2o(args.output,hypermog_output(g.dim, args.null_weight))
+	g.writeg2o(args.output,hypermog_output(g, args.null_weight))

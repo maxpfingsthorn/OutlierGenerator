@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
 	if args.do_seq:
 		g.setNonfixedPosesToZero()
-		g.intializePosesSequential()
+		g.initializePosesSequential()
 
 
-	g.writeg2o(args.output,plain_output(g.dim))
+	g.writeg2o(args.output,plain_output(g))
